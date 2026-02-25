@@ -479,7 +479,8 @@ class Physical3DSlider extends StatelessWidget {
   }
 }
 
-// --- AI AGENT BIRD COMPONENT (Unchanged) ---
+// --- UPGRADED 3D AI AGENT BIRD COMPONENT ---
+
 class AnimatedBird extends StatefulWidget {
   final int delay;
   final double scale;
@@ -497,9 +498,11 @@ class _AnimatedBirdState extends State<AnimatedBird> with SingleTickerProviderSt
   @override
   void initState() {
     super.initState();
-    _controller = AnimationController(vsync: this, duration: const Duration(milliseconds: 600));
-    _anim = CurvedAnimation(parent: _controller, curve: Curves.easeInOut);
-    Future.delayed(Duration(milliseconds: widget.delay), () { if (mounted) _controller.repeat(reverse: true); });
+    _controller = AnimationController(vsync: this, duration: const Duration(milliseconds: 500));
+    _anim = CurvedAnimation(parent: _controller, curve: Curves.easeInOutSine);
+    Future.delayed(Duration(milliseconds: widget.delay), () { 
+      if (mounted) _controller.repeat(reverse: true); 
+    });
   }
 
   @override
@@ -513,21 +516,37 @@ class _AnimatedBirdState extends State<AnimatedBird> with SingleTickerProviderSt
         return Stack(
           clipBehavior: Clip.none,
           children: [
+            // 3D floating data bits
             Positioned(
-              top: -30 * _anim.value, right: -5,
+              top: -35 * _anim.value, right: -5,
               child: Opacity(
                 opacity: 1 - _anim.value,
-                child: Text(
-                  math.Random().nextBool() ? "1" : "0",
-                  style: TextStyle(color: widget.isAI ? Colors.cyan : const Color(0xFFB4A2E7), fontSize: 10, fontWeight: FontWeight.bold, fontFamily: 'monospace'),
+                child: Transform(
+                  transform: Matrix4.identity()..setEntry(3, 2, 0.001)..rotateX(_anim.value), // Spins the text in 3D
+                  child: Text(
+                    math.Random().nextBool() ? "1" : "0",
+                    style: TextStyle(
+                      color: widget.isAI ? Colors.cyanAccent : const Color(0xFFB4A2E7), 
+                      fontSize: 12, fontWeight: FontWeight.bold, fontFamily: 'monospace',
+                      shadows: [Shadow(color: widget.isAI ? Colors.cyan : Colors.deepPurple, blurRadius: 10)]
+                    ),
+                  ),
                 ),
               ),
             ),
-            Transform.scale(
-              scale: widget.scale,
-              child: Transform.translate(
-                offset: Offset(0, -6 * _anim.value),
-                child: CustomPaint(size: const Size(35, 30), painter: AIAgentBirdPainter(bounce: _anim.value, isAI: widget.isAI)),
+            
+            // The 3D Bird Model
+            Transform(
+              transform: Matrix4.identity()
+                ..setEntry(3, 2, 0.002) // 3D Perspective
+                ..rotateY(0.3 * math.sin(_anim.value * math.pi)) // Yaws left and right
+                ..rotateX(-0.2 * _anim.value) // Pitches up when flying higher
+                ..scale(widget.scale)
+                ..translate(0.0, -12 * _anim.value, 0.0), // Physical Z-axis hover
+              alignment: Alignment.center,
+              child: CustomPaint(
+                size: const Size(45, 40),
+                painter: AIAgentBirdPainter(bounce: _anim.value, isAI: widget.isAI),
               ),
             ),
           ],
@@ -544,21 +563,76 @@ class AIAgentBirdPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    final bodyColor = isAI ? Colors.cyan : const Color(0xFF8D72E1);
-    final bodyPaint = Paint()..color = bodyColor;
-    if (isAI) canvas.drawCircle(Offset(size.width * 0.4, size.height * 0.6), 12, Paint()..color = Colors.cyan.withOpacity(0.3)..maskFilter = const MaskFilter.blur(BlurStyle.normal, 5));
-    canvas.drawCircle(Offset(size.width * 0.4, size.height * 0.6), 9, bodyPaint);
+    // 1. Ambient Drop Shadow (Detaches the bird from the background)
+    canvas.drawCircle(
+      Offset(size.width * 0.4 + 5, size.height * 0.6 + 15), 
+      8, 
+      Paint()..color = Colors.black.withOpacity(0.5)..maskFilter = const MaskFilter.blur(BlurStyle.normal, 6)
+    );
+
+    // 2. 3D Spherical Body (Using RadialGradient for lighting)
+    final Rect bodyRect = Rect.fromCircle(center: Offset(size.width * 0.4, size.height * 0.6), radius: 11);
+    final Paint bodyPaint = Paint()
+      ..shader = RadialGradient(
+        center: const Alignment(-0.4, -0.4), // Light source hits top-left
+        radius: 0.9,
+        colors: isAI 
+          ? [Colors.white, Colors.cyan, Colors.cyan.shade900]
+          : [Colors.white, const Color(0xFF8D72E1), const Color(0xFF3B1E7A)],
+        stops: const [0.0, 0.5, 1.0],
+      ).createShader(bodyRect);
+
+    // AI Glowing Aura
+    if (isAI) {
+      canvas.drawCircle(bodyRect.center, 15, Paint()..color = Colors.cyan.withOpacity(0.3)..maskFilter = const MaskFilter.blur(BlurStyle.normal, 8));
+    }
+    // Draw 3D Body
+    canvas.drawCircle(bodyRect.center, 11, bodyPaint);
+
+    // 3. 3D Beak (Two separate polygons to create a cone shadow)
+    // Top Half (Lit)
+    final topBeak = Path()
+      ..moveTo(size.width * 0.55, size.height * 0.55)
+      ..lineTo(size.width * 0.95, size.height * (0.45 - (0.1 * bounce)))
+      ..lineTo(size.width * 0.65, size.height * 0.6)
+      ..close();
+    canvas.drawPath(topBeak, Paint()..color = isAI ? Colors.white : Colors.orangeAccent.shade100);
+
+    // Bottom Half (Shadowed)
+    final bottomBeak = Path()
+      ..moveTo(size.width * 0.65, size.height * 0.6)
+      ..lineTo(size.width * 0.95, size.height * (0.45 - (0.1 * bounce)))
+      ..lineTo(size.width * 0.85, size.height * (0.65 + (0.1 * bounce)))
+      ..close();
+    canvas.drawPath(bottomBeak, Paint()..color = isAI ? Colors.grey.shade400 : Colors.deepOrange.shade800);
+
+    // 4. Glass/Glossy Eye
+    // Dark socket
+    canvas.drawCircle(Offset(size.width * 0.55, size.height * 0.48), 2.5, Paint()..color = isAI ? Colors.cyan.shade900 : Colors.black87);
+    // Specular Catchlight (The white reflection making it look like glass)
+    canvas.drawCircle(Offset(size.width * 0.53, size.height * 0.46), 0.8, Paint()..color = Colors.white);
+
+    // 5. 3D Wing (Gradient + Shadow + Thickness)
     final wingPath = Path();
-    wingPath.moveTo(size.width * 0.2, size.height * 0.6);
-    wingPath.quadraticBezierTo(0, size.height * (0.2 + (0.5 * bounce)), size.width * 0.3, size.height * 0.75);
-    canvas.drawPath(wingPath, Paint()..color = bodyColor.withOpacity(0.6));
-    final beakPath = Path();
-    beakPath.moveTo(size.width * 0.65, size.height * 0.55);
-    beakPath.lineTo(size.width * 0.9, size.height * (0.5 - (0.1 * bounce)));
-    beakPath.lineTo(size.width * 0.9, size.height * (0.6 + (0.1 * bounce)));
-    beakPath.close();
-    canvas.drawPath(beakPath, Paint()..color = isAI ? Colors.white : Colors.orangeAccent);
-    canvas.drawCircle(Offset(size.width * 0.52, size.height * 0.5), 1.5, Paint()..color = isAI ? Colors.white : Colors.black);
+    wingPath.moveTo(size.width * 0.25, size.height * 0.55);
+    // The wing tip moves up and down
+    double wingTipY = size.height * (0.1 + (0.8 * bounce));
+    wingPath.quadraticBezierTo(-size.width * 0.1, wingTipY, size.width * 0.4, size.height * 0.75);
+    wingPath.quadraticBezierTo(size.width * 0.3, size.height * 0.65, size.width * 0.25, size.height * 0.55); // Inner curve gives it thickness
+
+    final Paint wingPaint = Paint()
+      ..shader = LinearGradient(
+        begin: Alignment.topCenter,
+        end: Alignment.bottomCenter,
+        colors: isAI 
+          ? [Colors.cyanAccent, Colors.cyan.shade800] 
+          : [const Color(0xFFB4A2E7), const Color(0xFF4A2B8B)],
+      ).createShader(Rect.fromLTRB(0, 0, size.width, size.height));
+    
+    // Wing Drop Shadow (Projects onto the body)
+    canvas.drawPath(wingPath.shift(const Offset(1, 3)), Paint()..color = Colors.black45..maskFilter = const MaskFilter.blur(BlurStyle.normal, 2));
+    // Draw actual wing
+    canvas.drawPath(wingPath, wingPaint);
   }
 
   @override
