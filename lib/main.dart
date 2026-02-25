@@ -264,49 +264,54 @@ class _FlashcardGeneratorScreenState extends State<FlashcardGeneratorScreen> wit
   }
 
   Widget _buildControls() { 
+    // Dark glass gradient for the secondary control buttons
+    final secondaryGradient = [const Color(0xFF2A2A35), const Color(0xFF15151A)];
+    final secondaryLip = Colors.black;
+
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceEvenly, 
+      crossAxisAlignment: CrossAxisAlignment.end,
       children: [
-        const Icon(Icons.tune, color: Colors.white54), 
-        const Icon(Icons.fast_rewind_rounded, color: Colors.white, size: 32), 
+        Pushable3DIconButton(
+          icon: Icons.tune, size: 45, iconSize: 22,
+          topColors: secondaryGradient, lipColor: secondaryLip, iconColor: Colors.white54,
+          onPressed: () {}, 
+        ),
+        Pushable3DIconButton(
+          icon: Icons.fast_rewind_rounded, size: 55, iconSize: 28,
+          topColors: secondaryGradient, lipColor: secondaryLip, iconColor: Colors.white,
+          onPressed: () {}, 
+        ),
         _playButton(), 
-        const Icon(Icons.fast_forward_rounded, color: Colors.white, size: 32), 
-        const Icon(Icons.save_alt, color: Colors.white54)
+        Pushable3DIconButton(
+          icon: Icons.fast_forward_rounded, size: 55, iconSize: 28,
+          topColors: secondaryGradient, lipColor: secondaryLip, iconColor: Colors.white,
+          onPressed: () {}, 
+        ),
+        Pushable3DIconButton(
+          icon: Icons.save_alt, size: 45, iconSize: 22,
+          topColors: secondaryGradient, lipColor: secondaryLip, iconColor: Colors.white54,
+          onPressed: () {}, 
+        ),
       ]
     ); 
   }
 
   Widget _playButton() { 
-    return GestureDetector(
-      onTap: () {
-        HapticFeedback.lightImpact();
-        setState(() => isPlaying = !isPlaying);
-      }, 
-      child: Container(
-        height: 70, width: 70,
-        decoration: BoxDecoration(
-          shape: BoxShape.circle,
-          gradient: LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: isPlaying 
-              ? [Colors.white, Colors.grey.shade300] 
-              : (isLearning ? [Colors.cyanAccent, Colors.cyan.shade700] : [const Color(0xFFA685FE), const Color(0xFF6C4AB6)]),
-          ),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withOpacity(0.6),
-              blurRadius: 15, offset: const Offset(5, 5) // 3D drop shadow
-            ),
-            BoxShadow(
-              color: Colors.white.withOpacity(isPlaying ? 0.8 : 0.2),
-              blurRadius: 10, offset: const Offset(-3, -3) // 3D top highlight
-            )
-          ]
-        ),
-        child: Icon(isPlaying ? Icons.pause_rounded : Icons.play_arrow_rounded, color: Colors.black, size: 36)
-      )
-    ); 
+    return Pushable3DIconButton(
+      icon: isPlaying ? Icons.pause_rounded : Icons.play_arrow_rounded,
+      size: 75, // Bigger than the other controls
+      iconSize: 38,
+      // Dynamic colors based on AI and Playing states
+      topColors: isPlaying 
+        ? [Colors.white, Colors.grey.shade300] 
+        : (isLearning ? [Colors.cyanAccent, Colors.cyan.shade700] : [const Color(0xFFA685FE), const Color(0xFF6C4AB6)]),
+      lipColor: isPlaying 
+        ? Colors.grey.shade600 
+        : (isLearning ? Colors.cyan.shade900 : const Color(0xFF4A2B8B)),
+      iconColor: Colors.black,
+      onPressed: () => setState(() => isPlaying = !isPlaying),
+    );
   }
 }
 
@@ -559,3 +564,89 @@ class AIAgentBirdPainter extends CustomPainter {
   @override
   bool shouldRepaint(AIAgentBirdPainter oldDelegate) => true;
 }
+
+// --- NEW: 3D PHYSICAL CIRCULAR BUTTON ---
+class Pushable3DIconButton extends StatefulWidget {
+  final IconData icon;
+  final double size;
+  final double iconSize;
+  final List<Color> topColors;
+  final Color lipColor;
+  final Color iconColor;
+  final VoidCallback onPressed;
+
+  const Pushable3DIconButton({
+    super.key,
+    required this.icon,
+    required this.onPressed,
+    this.size = 50.0,
+    this.iconSize = 24.0,
+    required this.topColors,
+    required this.lipColor,
+    required this.iconColor,
+  });
+
+  @override
+  State<Pushable3DIconButton> createState() => _Pushable3DIconButtonState();
+}
+
+class _Pushable3DIconButtonState extends State<Pushable3DIconButton> {
+  bool isPressed = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTapDown: (_) {
+        HapticFeedback.lightImpact();
+        setState(() => isPressed = true);
+      },
+      onTapUp: (_) {
+        setState(() => isPressed = false);
+        widget.onPressed();
+      },
+      onTapCancel: () => setState(() => isPressed = false),
+      child: SizedBox(
+        height: widget.size + 8, // Extra 8px for the travel distance
+        width: widget.size,
+        child: Stack(
+          alignment: Alignment.center,
+          children: [
+            // 1. The Bottom "Lip" (Shadow layer)
+            Positioned(
+              bottom: 0,
+              child: Container(
+                height: widget.size, width: widget.size,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: widget.lipColor,
+                  boxShadow: const [BoxShadow(color: Colors.black87, blurRadius: 10, offset: Offset(0, 5))],
+                ),
+              ),
+            ),
+            // 2. The Top "Physical" Layer (Moves down when pressed)
+            AnimatedPositioned(
+              duration: const Duration(milliseconds: 50),
+              bottom: isPressed ? 0 : 8, // Moves down 8 pixels to meet the lip
+              child: Container(
+                height: widget.size, width: widget.size,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  gradient: LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: widget.topColors,
+                  ),
+                  border: Border.all(color: Colors.white.withOpacity(0.15), width: 1),
+                ),
+                child: Center(
+                  child: Icon(widget.icon, color: widget.iconColor, size: widget.iconSize),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
