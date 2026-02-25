@@ -1,5 +1,4 @@
 import 'dart:ui';
-import 'dart:io';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -7,42 +6,53 @@ import 'package:file_picker/file_picker.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
-  runApp(const TravelerApp());
+  runApp(const PremiumStudyApp());
 }
 
-class TravelerApp extends StatelessWidget {
-  const TravelerApp({super.key});
+class PremiumStudyApp extends StatelessWidget {
+  const PremiumStudyApp({super.key});
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
       theme: ThemeData(brightness: Brightness.dark, useMaterial3: true),
-      home: const PremiumPlayer(),
+      home: const FlashcardGeneratorScreen(),
     );
   }
 }
 
-class PremiumPlayer extends StatefulWidget {
-  const PremiumPlayer({super.key});
+class FlashcardGeneratorScreen extends StatefulWidget {
+  const FlashcardGeneratorScreen({super.key});
   @override
-  State<PremiumPlayer> createState() => _PremiumPlayerState();
+  State<FlashcardGeneratorScreen> createState() => _FlashcardGeneratorScreenState();
 }
 
-class _PremiumPlayerState extends State<PremiumPlayer> with TickerProviderStateMixin {
+class _FlashcardGeneratorScreenState extends State<FlashcardGeneratorScreen> with TickerProviderStateMixin {
   bool isPlaying = false;
-  bool isLearning = false; // NEW: AI Learning State
+  bool isLearning = false;
   String? selectedFilePath;
-  String fileName = "No file selected";
+  String fileName = "No syllabus selected";
   double _currentValue = 25.0;
 
-  late AnimationController _glowController;
-  late AnimationController _buttonPulseController;
+  // 3D Card Interaction variables
+  double _cardTiltX = 0.0;
+  double _cardTiltY = 0.0;
+
+  late AnimationController _bgOrbController;
+  late AnimationController _hoverController;
 
   @override
   void initState() {
     super.initState();
-    _glowController = AnimationController(vsync: this, duration: const Duration(seconds: 5))..repeat(reverse: true);
-    _buttonPulseController = AnimationController(vsync: this, duration: const Duration(seconds: 2))..repeat(reverse: true);
+    _bgOrbController = AnimationController(vsync: this, duration: const Duration(seconds: 10))..repeat(reverse: true);
+    _hoverController = AnimationController(vsync: this, duration: const Duration(seconds: 2))..repeat(reverse: true);
+  }
+
+  @override
+  void dispose() {
+    _bgOrbController.dispose();
+    _hoverController.dispose();
+    super.dispose();
   }
 
   Future<void> _pickFile() async {
@@ -56,12 +66,11 @@ class _PremiumPlayerState extends State<PremiumPlayer> with TickerProviderStateM
       setState(() {
         selectedFilePath = result.files.single.path;
         fileName = result.files.single.name;
-        isLearning = true; // Start AI "Agent" Mode
+        isLearning = true; 
         isPlaying = true; 
       });
 
-      // Simulate AI learning for 4 seconds
-      Future.delayed(const Duration(seconds: 4), () {
+      Future.delayed(const Duration(seconds: 5), () {
         if (mounted) setState(() => isLearning = false);
       });
     }
@@ -70,65 +79,173 @@ class _PremiumPlayerState extends State<PremiumPlayer> with TickerProviderStateM
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFF050505),
-      body: Stack(
-        children: [
-          // Ambient Glow
-          _buildAmbientGlow(),
+      backgroundColor: const Color(0xFF0A0A0E),
+      body: GestureDetector(
+        // Moving the gesture detector to the whole screen for global 3D parallax
+        onPanUpdate: (details) {
+          setState(() {
+            _cardTiltX -= details.delta.dy * 0.005;
+            _cardTiltY += details.delta.dx * 0.005;
+            _cardTiltX = _cardTiltX.clamp(-0.15, 0.15);
+            _cardTiltY = _cardTiltY.clamp(-0.15, 0.15);
+          });
+        },
+        onPanEnd: (_) {
+          setState(() { _cardTiltX = 0; _cardTiltY = 0; });
+        },
+        child: Stack(
+          children: [
+            // 1. Parallax 3D Background
+            _build3DBackground(),
 
-          // AI AGENT BIRDS (Positioned High)
-          if (isPlaying)
-            Positioned(
-              top: 80, 
-              left: 40,
-              child: _buildBirdFlock(),
-            ),
+            if (isPlaying)
+              Positioned(top: 80, left: 40, child: _buildBirdFlock()),
 
-          SafeArea(
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 24),
-              child: Column(
-                children: [
-                  const SizedBox(height: 10),
-                  _buildAIFileButton(),
-                  const Spacer(),
-                  _buildMainCard(),
-                  const Spacer(),
-                  _buildProgressSection(),
-                  const SizedBox(height: 40),
-                  _buildControls(),
-                  const SizedBox(height: 40),
-                ],
+            SafeArea(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 24),
+                child: Column(
+                  children: [
+                    const SizedBox(height: 10),
+                    // 2. Physical 3D Push Button
+                    Pushable3DButton(
+                      isLearning: isLearning,
+                      onPressed: _pickFile,
+                    ),
+                    const Spacer(),
+                    _build3DCard(),
+                    const Spacer(),
+                    // 3. 3D Physical Slider
+                    Physical3DSlider(
+                      value: _currentValue,
+                      isLearning: isLearning,
+                      onChanged: (v) => setState(() => _currentValue = v),
+                    ),
+                    const SizedBox(height: 40),
+                    _buildControls(),
+                    const SizedBox(height: 40),
+                  ],
+                ),
               ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
 
-  // --- Sub-Widgets ---
-  Widget _buildAmbientGlow() {
+  // --- 1. 3D PARALLAX BACKGROUND ---
+  Widget _build3DBackground() {
     return AnimatedBuilder(
-      animation: _glowController,
+      animation: _bgOrbController,
       builder: (context, child) {
-        return Positioned(
-          top: -100 + (30 * _glowController.value),
-          left: -50,
-          child: Container(
-            width: 400, height: 400,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              gradient: RadialGradient(
-                colors: [
-                  (isLearning ? Colors.cyan : const Color(0xFF6C4AB6)).withOpacity(0.15),
-                  Colors.transparent,
-                ],
-              ),
+        // We apply the inverse of the card tilt to the background to create deep space parallax
+        return Transform.translate(
+          offset: Offset(_cardTiltY * -150, _cardTiltX * -150), 
+          child: SizedBox.expand( // <--- THE FIX: Forces the Stack to fill the entire screen
+            child: Stack(
+              children: [
+                Positioned(
+                  top: -100 + (50 * math.sin(_bgOrbController.value * math.pi)),
+                  left: -50 + (30 * math.cos(_bgOrbController.value * math.pi)),
+                  child: Container(
+                    width: 300, height: 300,
+                    decoration: BoxDecoration(shape: BoxShape.circle, color: Colors.cyan.withOpacity(0.2)),
+                  ),
+                ),
+                Positioned(
+                  bottom: -50 + (40 * math.cos(_bgOrbController.value * math.pi)),
+                  right: -50 + (60 * math.sin(_bgOrbController.value * math.pi)),
+                  child: Container(
+                    width: 350, height: 350,
+                    decoration: BoxDecoration(shape: BoxShape.circle, color: const Color(0xFF6C4AB6).withOpacity(0.25)),
+                  ),
+                ),
+                Positioned.fill(
+                  child: BackdropFilter(
+                    filter: ImageFilter.blur(sigmaX: 60, sigmaY: 60),
+                    child: Container(color: Colors.transparent), // The glass layer
+                  ),
+                ),
+              ],
             ),
           ),
         );
       },
+    );
+  }
+
+  // --- 2. 3D HOLOGRAPHIC CARD ---
+  Widget _build3DCard() {
+    return AnimatedBuilder(
+      animation: _hoverController,
+      builder: (context, child) {
+        double autoTilt = isLearning ? (math.sin(_hoverController.value * math.pi * 2) * 0.05) : 0;
+        double autoScale = isLearning ? 1.02 + (_hoverController.value * 0.02) : 1.0;
+
+        return Transform(
+          transform: Matrix4.identity()
+            ..setEntry(3, 2, 0.002) // Increased depth perspective
+            ..rotateX(_cardTiltX + autoTilt)
+            ..rotateY(_cardTiltY + autoTilt)
+            ..scale(autoScale),
+          alignment: FractionalOffset.center,
+          child: _buildCardContent(),
+        );
+      },
+    );
+  }
+
+  Widget _buildCardContent() {
+    return Container(
+      height: 380, width: double.infinity,
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(40),
+        border: Border.all(
+          color: isLearning ? Colors.cyan.withOpacity(0.6) : Colors.white.withOpacity(0.15),
+          width: 2,
+        ),
+        boxShadow: [
+          // This creates the 3D "lift" shadow off the background
+          BoxShadow(
+            color: isLearning ? Colors.cyan.withOpacity(0.3) : Colors.black87, 
+            blurRadius: 50,
+            offset: Offset(_cardTiltY * -30, _cardTiltX * -30 + 20), // Shadow moves dynamically
+            spreadRadius: isLearning ? 5 : -10,
+          )
+        ],
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(40),
+        child: BackdropFilter(
+          filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
+          child: Container(
+            color: Colors.white.withOpacity(0.08),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                isLearning 
+                  ? const CircularProgressIndicator(color: Colors.cyan, strokeWidth: 3)
+                  : Icon(Icons.picture_as_pdf_rounded, size: 90, color: const Color(0xFF8D72E1).withOpacity(0.9)),
+                const SizedBox(height: 30),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 20),
+                  child: Text(
+                    fileName, 
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.white),
+                  ),
+                ),
+                const SizedBox(height: 10),
+                Text(
+                  isLearning ? "Extracting Key Facts..." : "Ready to Generate", 
+                  style: TextStyle(color: isLearning ? Colors.cyan : Colors.white54, letterSpacing: 1.2),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
     );
   }
 
@@ -146,72 +263,218 @@ class _PremiumPlayerState extends State<PremiumPlayer> with TickerProviderStateM
     );
   }
 
-  Widget _buildAIFileButton() {
+  Widget _buildControls() { 
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceEvenly, 
+      children: [
+        const Icon(Icons.tune, color: Colors.white54), 
+        const Icon(Icons.fast_rewind_rounded, color: Colors.white, size: 32), 
+        _playButton(), 
+        const Icon(Icons.fast_forward_rounded, color: Colors.white, size: 32), 
+        const Icon(Icons.save_alt, color: Colors.white54)
+      ]
+    ); 
+  }
+
+  Widget _playButton() { 
     return GestureDetector(
-      onTap: _pickFile,
+      onTap: () {
+        HapticFeedback.lightImpact();
+        setState(() => isPlaying = !isPlaying);
+      }, 
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+        height: 70, width: 70,
         decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(20),
+          shape: BoxShape.circle,
           gradient: LinearGradient(
-            colors: isLearning 
-              ? [Colors.cyan, Colors.blueAccent] 
-              : [const Color(0xFF8D72E1), const Color(0xFF6C4AB6)],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: isPlaying 
+              ? [Colors.white, Colors.grey.shade300] 
+              : (isLearning ? [Colors.cyanAccent, Colors.cyan.shade700] : [const Color(0xFFA685FE), const Color(0xFF6C4AB6)]),
           ),
-          border: Border.all(color: Colors.white.withOpacity(0.2)),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.6),
+              blurRadius: 15, offset: const Offset(5, 5) // 3D drop shadow
+            ),
+            BoxShadow(
+              color: Colors.white.withOpacity(isPlaying ? 0.8 : 0.2),
+              blurRadius: 10, offset: const Offset(-3, -3) // 3D top highlight
+            )
+          ]
         ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
+        child: Icon(isPlaying ? Icons.pause_rounded : Icons.play_arrow_rounded, color: Colors.black, size: 36)
+      )
+    ); 
+  }
+}
+
+// --- NEW: 3D PHYSICAL PUSH BUTTON ---
+class Pushable3DButton extends StatefulWidget {
+  final bool isLearning;
+  final VoidCallback onPressed;
+  const Pushable3DButton({super.key, required this.isLearning, required this.onPressed});
+
+  @override
+  State<Pushable3DButton> createState() => _Pushable3DButtonState();
+}
+
+class _Pushable3DButtonState extends State<Pushable3DButton> {
+  bool isPressed = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTapDown: (_) {
+        HapticFeedback.mediumImpact();
+        setState(() => isPressed = true);
+      },
+      onTapUp: (_) {
+        setState(() => isPressed = false);
+        widget.onPressed();
+      },
+      onTapCancel: () => setState(() => isPressed = false),
+      child: SizedBox(
+        height: 60,
+        width: 240,
+        child: Stack(
+          alignment: Alignment.center,
           children: [
-            Icon(isLearning ? Icons.psychology : Icons.auto_awesome, color: Colors.white, size: 18),
-            const SizedBox(width: 10),
-            Text(isLearning ? "NEURAL MAPPING..." : "INITIALIZE AI READER",
-              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 11, letterSpacing: 1.1)),
+            // The Bottom "Lip" (Shadow layer)
+            Positioned(
+              bottom: 0,
+              child: Container(
+                height: 50, width: 240,
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(25),
+                  color: widget.isLearning ? Colors.cyan.shade900 : const Color(0xFF4A2B8B),
+                  boxShadow: const [BoxShadow(color: Colors.black87, blurRadius: 10, offset: Offset(0, 10))],
+                ),
+              ),
+            ),
+            // The Top "Physical" Layer (Moves down when pressed)
+            AnimatedPositioned(
+              duration: const Duration(milliseconds: 50),
+              bottom: isPressed ? 0 : 6, // Moves 6 pixels down on Z/Y axis when pressed
+              child: Container(
+                height: 50, width: 240,
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(25),
+                  gradient: LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: widget.isLearning 
+                      ? [Colors.cyanAccent, Colors.cyan.shade600] 
+                      : [const Color(0xFF8D72E1), const Color(0xFF6C4AB6)],
+                  ),
+                  border: Border.all(color: Colors.white.withOpacity(0.3), width: 1),
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(widget.isLearning ? Icons.psychology : Icons.document_scanner, color: Colors.white, size: 20),
+                    const SizedBox(width: 10),
+                    Text(widget.isLearning ? "ANALYZING..." : "UPLOAD MATERIAL",
+                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, letterSpacing: 1.1, color: Colors.white)),
+                  ],
+                ),
+              ),
+            ),
           ],
         ),
       ),
     );
   }
+}
 
-  Widget _buildMainCard() {
-    return AnimatedContainer(
-      duration: const Duration(milliseconds: 500),
-      height: 380, width: double.infinity,
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(40),
-        border: Border.all(color: isLearning ? Colors.cyan.withOpacity(0.3) : Colors.white10),
-        boxShadow: [BoxShadow(color: isLearning ? Colors.cyan.withOpacity(0.1) : Colors.black54, blurRadius: 40)],
-      ),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(40),
-        child: BackdropFilter(
-          filter: ImageFilter.blur(sigmaX: 25, sigmaY: 25),
-          child: Container(
-            color: Colors.white.withOpacity(0.02),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                isLearning 
-                  ? const CircularProgressIndicator(color: Colors.cyan)
-                  : Icon(Icons.picture_as_pdf_rounded, size: 100, color: const Color(0xFF8D72E1)),
-                const SizedBox(height: 30),
-                Text(fileName, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
-                Text(isLearning ? "AI Agent Learning Context..." : "Ready to Read", style: TextStyle(color: Colors.white38)),
-              ],
+// --- NEW: 3D NEUMORPHIC SLIDER ---
+class Physical3DSlider extends StatelessWidget {
+  final double value;
+  final bool isLearning;
+  final ValueChanged<double> onChanged;
+
+  const Physical3DSlider({super.key, required this.value, required this.isLearning, required this.onChanged});
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onPanUpdate: (details) {
+        RenderBox box = context.findRenderObject() as RenderBox;
+        double localDx = details.localPosition.dx.clamp(0.0, box.size.width);
+        double percent = localDx / box.size.width;
+        onChanged(percent * 100);
+      },
+      child: SizedBox(
+        height: 40,
+        width: double.infinity,
+        child: Stack(
+          alignment: Alignment.centerLeft,
+          children: [
+            // 1. The Carved Groove (Track) - FIXED FOR NATIVE FLUTTER
+            Container(
+              height: 12, width: double.infinity,
+              decoration: BoxDecoration(
+                color: const Color(0xFF151515), // Deep dark base
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: Colors.black87, width: 1.5), // Hard dark physical edge
+                // We fake the 'inset' shadow using a gradient that is pitch black at the top and transparent at the bottom
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [
+                    Colors.black.withOpacity(0.9), // Deep shadow inside the top lip
+                    Colors.transparent, // Catches the light at the bottom lip
+                  ],
+                ),
+              ),
             ),
-          ),
+            // 2. The Filled Track (Progress)
+            Container(
+              height: 12, width: (value / 100) * (MediaQuery.of(context).size.width - 48),
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(10),
+                gradient: LinearGradient(
+                  colors: isLearning ? [Colors.cyan.shade900, Colors.cyan] : [const Color(0xFF4A2B8B), const Color(0xFFA685FE)],
+                ),
+                boxShadow: [
+                  BoxShadow(color: isLearning ? Colors.cyan.withOpacity(0.5) : const Color(0xFF8D72E1).withOpacity(0.5), blurRadius: 8)
+                ]
+              ),
+            ),
+            // 3. The 3D Knob (Thumb)
+            Positioned(
+              left: (value / 100) * (MediaQuery.of(context).size.width - 48) - 15, // Centers the 30px thumb
+              child: Container(
+                height: 30, width: 30,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: const Color(0xFF1E1E24),
+                  border: Border.all(color: isLearning ? Colors.cyan : const Color(0xFFA685FE), width: 2),
+                  boxShadow: [
+                    const BoxShadow(color: Colors.black87, blurRadius: 8, offset: Offset(4, 4)), // Drop shadow
+                    BoxShadow(color: Colors.white.withOpacity(0.2), blurRadius: 4, offset: const Offset(-2, -2)), // Top highlight
+                  ]
+                ),
+                child: Center(
+                  child: Container(
+                    height: 10, width: 10,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: isLearning ? Colors.cyan : const Color(0xFFA685FE),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ],
         ),
       ),
     );
   }
-
-  Widget _buildProgressSection() { return Slider(value: _currentValue, max: 100, activeColor: isLearning ? Colors.cyan : const Color(0xFF8D72E1), onChanged: (v) => setState(() => _currentValue = v)); }
-  Widget _buildControls() { return Row(mainAxisAlignment: MainAxisAlignment.spaceEvenly, children: [const Icon(Icons.shuffle), const Icon(Icons.skip_previous), _playButton(), const Icon(Icons.skip_next), const Icon(Icons.repeat)]); }
-  Widget _playButton() { return GestureDetector(onTap: () => setState(() => isPlaying = !isPlaying), child: CircleAvatar(radius: 40, backgroundColor: isPlaying ? Colors.white : (isLearning ? Colors.cyan : const Color(0xFF8D72E1)), child: Icon(isPlaying ? Icons.pause : Icons.play_arrow, color: Colors.black, size: 40))); }
 }
 
-// --- UPDATED AI AGENT BIRD COMPONENT ---
-
+// --- AI AGENT BIRD COMPONENT (Unchanged) ---
 class AnimatedBird extends StatefulWidget {
   final int delay;
   final double scale;
@@ -245,20 +508,13 @@ class _AnimatedBirdState extends State<AnimatedBird> with SingleTickerProviderSt
         return Stack(
           clipBehavior: Clip.none,
           children: [
-            // DATA BITS (0/1) instead of Music Notes when learning
             Positioned(
-              top: -30 * _anim.value,
-              right: -5,
+              top: -30 * _anim.value, right: -5,
               child: Opacity(
                 opacity: 1 - _anim.value,
                 child: Text(
                   math.Random().nextBool() ? "1" : "0",
-                  style: TextStyle(
-                    color: widget.isAI ? Colors.cyan : const Color(0xFFB4A2E7),
-                    fontSize: 10,
-                    fontWeight: FontWeight.bold,
-                    fontFamily: 'monospace'
-                  ),
+                  style: TextStyle(color: widget.isAI ? Colors.cyan : const Color(0xFFB4A2E7), fontSize: 10, fontWeight: FontWeight.bold, fontFamily: 'monospace'),
                 ),
               ),
             ),
@@ -266,13 +522,7 @@ class _AnimatedBirdState extends State<AnimatedBird> with SingleTickerProviderSt
               scale: widget.scale,
               child: Transform.translate(
                 offset: Offset(0, -6 * _anim.value),
-                child: CustomPaint(
-                  size: const Size(35, 30),
-                  painter: AIAgentBirdPainter(
-                    bounce: _anim.value, 
-                    isAI: widget.isAI
-                  ),
-                ),
+                child: CustomPaint(size: const Size(35, 30), painter: AIAgentBirdPainter(bounce: _anim.value, isAI: widget.isAI)),
               ),
             ),
           ],
@@ -291,30 +541,18 @@ class AIAgentBirdPainter extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     final bodyColor = isAI ? Colors.cyan : const Color(0xFF8D72E1);
     final bodyPaint = Paint()..color = bodyColor;
-    
-    // Draw Glow if AI
-    if (isAI) {
-      canvas.drawCircle(Offset(size.width * 0.4, size.height * 0.6), 12, Paint()..color = Colors.cyan.withOpacity(0.3)..maskFilter = const MaskFilter.blur(BlurStyle.normal, 5));
-    }
-
-    // Body
+    if (isAI) canvas.drawCircle(Offset(size.width * 0.4, size.height * 0.6), 12, Paint()..color = Colors.cyan.withOpacity(0.3)..maskFilter = const MaskFilter.blur(BlurStyle.normal, 5));
     canvas.drawCircle(Offset(size.width * 0.4, size.height * 0.6), 9, bodyPaint);
-    
-    // Wing
     final wingPath = Path();
     wingPath.moveTo(size.width * 0.2, size.height * 0.6);
     wingPath.quadraticBezierTo(0, size.height * (0.2 + (0.5 * bounce)), size.width * 0.3, size.height * 0.75);
     canvas.drawPath(wingPath, Paint()..color = bodyColor.withOpacity(0.6));
-
-    // Beak
     final beakPath = Path();
     beakPath.moveTo(size.width * 0.65, size.height * 0.55);
     beakPath.lineTo(size.width * 0.9, size.height * (0.5 - (0.1 * bounce)));
     beakPath.lineTo(size.width * 0.9, size.height * (0.6 + (0.1 * bounce)));
     beakPath.close();
     canvas.drawPath(beakPath, Paint()..color = isAI ? Colors.white : Colors.orangeAccent);
-
-    // AI Eye (Scanner)
     canvas.drawCircle(Offset(size.width * 0.52, size.height * 0.5), 1.5, Paint()..color = isAI ? Colors.white : Colors.black);
   }
 
