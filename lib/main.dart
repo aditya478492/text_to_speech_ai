@@ -1,4 +1,3 @@
-import 'dart:ui';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -34,23 +33,23 @@ class _FlashcardGeneratorScreenState extends State<FlashcardGeneratorScreen> wit
   String fileName = "No syllabus selected";
   double _currentValue = 25.0;
 
-  // 3D Card Interaction variables
   double _cardTiltX = 0.0;
   double _cardTiltY = 0.0;
 
-  late AnimationController _bgOrbController;
+  late AnimationController _bgGradientController;
   late AnimationController _hoverController;
 
   @override
   void initState() {
     super.initState();
-    _bgOrbController = AnimationController(vsync: this, duration: const Duration(seconds: 10))..repeat(reverse: true);
-    _hoverController = AnimationController(vsync: this, duration: const Duration(seconds: 2))..repeat(reverse: true);
+    // Background shifting gradient (Extremely cheap)
+    _bgGradientController = AnimationController(vsync: this, duration: const Duration(seconds: 8))..repeat(reverse: true);
+    _hoverController = AnimationController(vsync: this, duration: const Duration(seconds: 2));
   }
 
   @override
   void dispose() {
-    _bgOrbController.dispose();
+    _bgGradientController.dispose();
     _hoverController.dispose();
     super.dispose();
   }
@@ -69,9 +68,13 @@ class _FlashcardGeneratorScreenState extends State<FlashcardGeneratorScreen> wit
         isLearning = true; 
         isPlaying = true; 
       });
+      _hoverController.repeat(reverse: true); // Only animate hover when learning
 
       Future.delayed(const Duration(seconds: 5), () {
-        if (mounted) setState(() => isLearning = false);
+        if (mounted) {
+          setState(() => isLearning = false);
+          _hoverController.stop(); // Stop animation to save battery
+        }
       });
     }
   }
@@ -79,9 +82,7 @@ class _FlashcardGeneratorScreenState extends State<FlashcardGeneratorScreen> wit
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFF0A0A0E),
       body: GestureDetector(
-        // Moving the gesture detector to the whole screen for global 3D parallax
         onPanUpdate: (details) {
           setState(() {
             _cardTiltX -= details.delta.dy * 0.005;
@@ -95,8 +96,8 @@ class _FlashcardGeneratorScreenState extends State<FlashcardGeneratorScreen> wit
         },
         child: Stack(
           children: [
-            // 1. Parallax 3D Background
-            _build3DBackground(),
+            // 1. CHEAP ANIMATED BACKGROUND (No Blur)
+            _buildOptimizedBackground(),
 
             if (isPlaying)
               Positioned(top: 80, left: 40, child: _buildBirdFlock()),
@@ -107,15 +108,11 @@ class _FlashcardGeneratorScreenState extends State<FlashcardGeneratorScreen> wit
                 child: Column(
                   children: [
                     const SizedBox(height: 10),
-                    // 2. Physical 3D Push Button
-                    Pushable3DButton(
-                      isLearning: isLearning,
-                      onPressed: _pickFile,
-                    ),
+                    Pushable3DButton(isLearning: isLearning, onPressed: _pickFile),
                     const Spacer(),
-                    _build3DCard(),
+                    // 2. CACHED 3D CARD (RepaintBoundary)
+                    RepaintBoundary(child: _build3DCard()),
                     const Spacer(),
-                    // 3. 3D Physical Slider
                     Physical3DSlider(
                       value: _currentValue,
                       isLearning: isLearning,
@@ -123,7 +120,7 @@ class _FlashcardGeneratorScreenState extends State<FlashcardGeneratorScreen> wit
                     ),
                     const SizedBox(height: 40),
                     _buildControls(),
-                    const SizedBox(height: 40),
+                    const SizedBox(height: 40), // SPACE FOR ADMOB BANNER
                   ],
                 ),
               ),
@@ -134,39 +131,20 @@ class _FlashcardGeneratorScreenState extends State<FlashcardGeneratorScreen> wit
     );
   }
 
-  // --- 1. 3D PARALLAX BACKGROUND ---
-  Widget _build3DBackground() {
+  // --- 1. OPTIMIZED BACKGROUND ---
+  Widget _buildOptimizedBackground() {
     return AnimatedBuilder(
-      animation: _bgOrbController,
+      animation: _bgGradientController,
       builder: (context, child) {
-        // We apply the inverse of the card tilt to the background to create deep space parallax
-        return Transform.translate(
-          offset: Offset(_cardTiltY * -150, _cardTiltX * -150), 
-          child: SizedBox.expand( // <--- THE FIX: Forces the Stack to fill the entire screen
-            child: Stack(
-              children: [
-                Positioned(
-                  top: -100 + (50 * math.sin(_bgOrbController.value * math.pi)),
-                  left: -50 + (30 * math.cos(_bgOrbController.value * math.pi)),
-                  child: Container(
-                    width: 300, height: 300,
-                    decoration: BoxDecoration(shape: BoxShape.circle, color: Colors.cyan.withOpacity(0.2)),
-                  ),
-                ),
-                Positioned(
-                  bottom: -50 + (40 * math.cos(_bgOrbController.value * math.pi)),
-                  right: -50 + (60 * math.sin(_bgOrbController.value * math.pi)),
-                  child: Container(
-                    width: 350, height: 350,
-                    decoration: BoxDecoration(shape: BoxShape.circle, color: const Color(0xFF6C4AB6).withOpacity(0.25)),
-                  ),
-                ),
-                Positioned.fill(
-                  child: BackdropFilter(
-                    filter: ImageFilter.blur(sigmaX: 60, sigmaY: 60),
-                    child: Container(color: Colors.transparent), // The glass layer
-                  ),
-                ),
+        return Container(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment(-1.0 + (_bgGradientController.value * 0.5), -1.0),
+              end: Alignment(1.0, 1.0 - (_bgGradientController.value * 0.5)),
+              colors: const [
+                Color(0xFF07070A), // Almost black
+                Color(0xFF130E24), // Deep Purple
+                Color(0xFF0A151A), // Deep Cyan
               ],
             ),
           ),
@@ -175,7 +153,7 @@ class _FlashcardGeneratorScreenState extends State<FlashcardGeneratorScreen> wit
     );
   }
 
-  // --- 2. 3D HOLOGRAPHIC CARD ---
+  // --- 2. OPTIMIZED 3D CARD ---
   Widget _build3DCard() {
     return AnimatedBuilder(
       animation: _hoverController,
@@ -185,42 +163,36 @@ class _FlashcardGeneratorScreenState extends State<FlashcardGeneratorScreen> wit
 
         return Transform(
           transform: Matrix4.identity()
-            ..setEntry(3, 2, 0.002) // Increased depth perspective
+            ..setEntry(3, 2, 0.002) 
             ..rotateX(_cardTiltX + autoTilt)
             ..rotateY(_cardTiltY + autoTilt)
             ..scale(autoScale),
           alignment: FractionalOffset.center,
-          child: _buildCardContent(),
-        );
-      },
-    );
-  }
-
-  Widget _buildCardContent() {
-    return Container(
-      height: 380, width: double.infinity,
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(40),
-        border: Border.all(
-          color: isLearning ? Colors.cyan.withOpacity(0.6) : Colors.white.withOpacity(0.15),
-          width: 2,
-        ),
-        boxShadow: [
-          // This creates the 3D "lift" shadow off the background
-          BoxShadow(
-            color: isLearning ? Colors.cyan.withOpacity(0.3) : Colors.black87, 
-            blurRadius: 50,
-            offset: Offset(_cardTiltY * -30, _cardTiltX * -30 + 20), // Shadow moves dynamically
-            spreadRadius: isLearning ? 5 : -10,
-          )
-        ],
-      ),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(40),
-        child: BackdropFilter(
-          filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
           child: Container(
-            color: Colors.white.withOpacity(0.08),
+            height: 380, width: double.infinity,
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(40),
+              // "Fake Glass" Gradient instead of BackdropFilter
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [
+                  Colors.white.withOpacity(0.08),
+                  Colors.white.withOpacity(0.02),
+                ],
+              ),
+              border: Border.all(
+                color: isLearning ? Colors.cyan.withOpacity(0.5) : Colors.white.withOpacity(0.1),
+                width: 1.5,
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: isLearning ? Colors.cyan.withOpacity(0.15) : Colors.black54, 
+                  blurRadius: 30,
+                  offset: Offset(_cardTiltY * -20, _cardTiltX * -20 + 15),
+                )
+              ],
+            ),
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
@@ -244,8 +216,8 @@ class _FlashcardGeneratorScreenState extends State<FlashcardGeneratorScreen> wit
               ],
             ),
           ),
-        ),
-      ),
+        );
+      },
     );
   }
 
@@ -264,7 +236,6 @@ class _FlashcardGeneratorScreenState extends State<FlashcardGeneratorScreen> wit
   }
 
   Widget _buildControls() { 
-    // Dark glass gradient for the secondary control buttons
     final secondaryGradient = [const Color(0xFF2A2A35), const Color(0xFF15151A)];
     final secondaryLip = Colors.black;
 
@@ -272,27 +243,11 @@ class _FlashcardGeneratorScreenState extends State<FlashcardGeneratorScreen> wit
       mainAxisAlignment: MainAxisAlignment.spaceEvenly, 
       crossAxisAlignment: CrossAxisAlignment.end,
       children: [
-        Pushable3DIconButton(
-          icon: Icons.tune, size: 45, iconSize: 22,
-          topColors: secondaryGradient, lipColor: secondaryLip, iconColor: Colors.white54,
-          onPressed: () {}, 
-        ),
-        Pushable3DIconButton(
-          icon: Icons.fast_rewind_rounded, size: 55, iconSize: 28,
-          topColors: secondaryGradient, lipColor: secondaryLip, iconColor: Colors.white,
-          onPressed: () {}, 
-        ),
+        Pushable3DIconButton(icon: Icons.tune, size: 45, iconSize: 22, topColors: secondaryGradient, lipColor: secondaryLip, iconColor: Colors.white54, onPressed: () {}),
+        Pushable3DIconButton(icon: Icons.fast_rewind_rounded, size: 55, iconSize: 28, topColors: secondaryGradient, lipColor: secondaryLip, iconColor: Colors.white, onPressed: () {}),
         _playButton(), 
-        Pushable3DIconButton(
-          icon: Icons.fast_forward_rounded, size: 55, iconSize: 28,
-          topColors: secondaryGradient, lipColor: secondaryLip, iconColor: Colors.white,
-          onPressed: () {}, 
-        ),
-        Pushable3DIconButton(
-          icon: Icons.save_alt, size: 45, iconSize: 22,
-          topColors: secondaryGradient, lipColor: secondaryLip, iconColor: Colors.white54,
-          onPressed: () {}, 
-        ),
+        Pushable3DIconButton(icon: Icons.fast_forward_rounded, size: 55, iconSize: 28, topColors: secondaryGradient, lipColor: secondaryLip, iconColor: Colors.white, onPressed: () {}),
+        Pushable3DIconButton(icon: Icons.save_alt, size: 45, iconSize: 22, topColors: secondaryGradient, lipColor: secondaryLip, iconColor: Colors.white54, onPressed: () {}),
       ]
     ); 
   }
@@ -300,22 +255,16 @@ class _FlashcardGeneratorScreenState extends State<FlashcardGeneratorScreen> wit
   Widget _playButton() { 
     return Pushable3DIconButton(
       icon: isPlaying ? Icons.pause_rounded : Icons.play_arrow_rounded,
-      size: 75, // Bigger than the other controls
-      iconSize: 38,
-      // Dynamic colors based on AI and Playing states
-      topColors: isPlaying 
-        ? [Colors.white, Colors.grey.shade300] 
-        : (isLearning ? [Colors.cyanAccent, Colors.cyan.shade700] : [const Color(0xFFA685FE), const Color(0xFF6C4AB6)]),
-      lipColor: isPlaying 
-        ? Colors.grey.shade600 
-        : (isLearning ? Colors.cyan.shade900 : const Color(0xFF4A2B8B)),
+      size: 75, iconSize: 38,
+      topColors: isPlaying ? [Colors.white, Colors.grey.shade300] : (isLearning ? [Colors.cyanAccent, Colors.cyan.shade700] : [const Color(0xFFA685FE), const Color(0xFF6C4AB6)]),
+      lipColor: isPlaying ? Colors.grey.shade600 : (isLearning ? Colors.cyan.shade900 : const Color(0xFF4A2B8B)),
       iconColor: Colors.black,
       onPressed: () => setState(() => isPlaying = !isPlaying),
     );
   }
 }
 
-// --- NEW: 3D PHYSICAL PUSH BUTTON ---
+// --- OPTIMIZED BUTTON & SLIDER (Unchanged logically, highly efficient) ---
 class Pushable3DButton extends StatefulWidget {
   final bool isLearning;
   final VoidCallback onPressed;
@@ -331,48 +280,23 @@ class _Pushable3DButtonState extends State<Pushable3DButton> {
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
-      onTapDown: (_) {
-        HapticFeedback.mediumImpact();
-        setState(() => isPressed = true);
-      },
-      onTapUp: (_) {
-        setState(() => isPressed = false);
-        widget.onPressed();
-      },
+      onTapDown: (_) { HapticFeedback.mediumImpact(); setState(() => isPressed = true); },
+      onTapUp: (_) { setState(() => isPressed = false); widget.onPressed(); },
       onTapCancel: () => setState(() => isPressed = false),
       child: SizedBox(
-        height: 60,
-        width: 240,
+        height: 60, width: 240,
         child: Stack(
           alignment: Alignment.center,
           children: [
-            // The Bottom "Lip" (Shadow layer)
-            Positioned(
-              bottom: 0,
-              child: Container(
-                height: 50, width: 240,
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(25),
-                  color: widget.isLearning ? Colors.cyan.shade900 : const Color(0xFF4A2B8B),
-                  boxShadow: const [BoxShadow(color: Colors.black87, blurRadius: 10, offset: Offset(0, 10))],
-                ),
-              ),
-            ),
-            // The Top "Physical" Layer (Moves down when pressed)
+            Positioned(bottom: 0, child: Container(height: 50, width: 240, decoration: BoxDecoration(borderRadius: BorderRadius.circular(25), color: widget.isLearning ? Colors.cyan.shade900 : const Color(0xFF4A2B8B)))),
             AnimatedPositioned(
               duration: const Duration(milliseconds: 50),
-              bottom: isPressed ? 0 : 6, // Moves 6 pixels down on Z/Y axis when pressed
+              bottom: isPressed ? 0 : 6, 
               child: Container(
                 height: 50, width: 240,
                 decoration: BoxDecoration(
                   borderRadius: BorderRadius.circular(25),
-                  gradient: LinearGradient(
-                    begin: Alignment.topCenter,
-                    end: Alignment.bottomCenter,
-                    colors: widget.isLearning 
-                      ? [Colors.cyanAccent, Colors.cyan.shade600] 
-                      : [const Color(0xFF8D72E1), const Color(0xFF6C4AB6)],
-                  ),
+                  gradient: LinearGradient(colors: widget.isLearning ? [Colors.cyanAccent, Colors.cyan.shade600] : [const Color(0xFF8D72E1), const Color(0xFF6C4AB6)]),
                   border: Border.all(color: Colors.white.withOpacity(0.3), width: 1),
                 ),
                 child: Row(
@@ -380,8 +304,7 @@ class _Pushable3DButtonState extends State<Pushable3DButton> {
                   children: [
                     Icon(widget.isLearning ? Icons.psychology : Icons.document_scanner, color: Colors.white, size: 20),
                     const SizedBox(width: 10),
-                    Text(widget.isLearning ? "ANALYZING..." : "UPLOAD MATERIAL",
-                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, letterSpacing: 1.1, color: Colors.white)),
+                    Text(widget.isLearning ? "ANALYZING..." : "UPLOAD MATERIAL", style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, letterSpacing: 1.1, color: Colors.white)),
                   ],
                 ),
               ),
@@ -393,12 +316,10 @@ class _Pushable3DButtonState extends State<Pushable3DButton> {
   }
 }
 
-// --- NEW: 3D NEUMORPHIC SLIDER ---
 class Physical3DSlider extends StatelessWidget {
   final double value;
   final bool isLearning;
   final ValueChanged<double> onChanged;
-
   const Physical3DSlider({super.key, required this.value, required this.isLearning, required this.onChanged});
 
   @override
@@ -407,69 +328,30 @@ class Physical3DSlider extends StatelessWidget {
       onPanUpdate: (details) {
         RenderBox box = context.findRenderObject() as RenderBox;
         double localDx = details.localPosition.dx.clamp(0.0, box.size.width);
-        double percent = localDx / box.size.width;
-        onChanged(percent * 100);
+        onChanged((localDx / box.size.width) * 100);
       },
       child: SizedBox(
-        height: 40,
-        width: double.infinity,
+        height: 40, width: double.infinity,
         child: Stack(
           alignment: Alignment.centerLeft,
           children: [
-            // 1. The Carved Groove (Track) - FIXED FOR NATIVE FLUTTER
             Container(
               height: 12, width: double.infinity,
               decoration: BoxDecoration(
-                color: const Color(0xFF151515), // Deep dark base
-                borderRadius: BorderRadius.circular(10),
-                border: Border.all(color: Colors.black87, width: 1.5), // Hard dark physical edge
-                // We fake the 'inset' shadow using a gradient that is pitch black at the top and transparent at the bottom
-                gradient: LinearGradient(
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
-                  colors: [
-                    Colors.black.withOpacity(0.9), // Deep shadow inside the top lip
-                    Colors.transparent, // Catches the light at the bottom lip
-                  ],
-                ),
+                color: const Color(0xFF151515), borderRadius: BorderRadius.circular(10), border: Border.all(color: Colors.black87, width: 1.5),
+                gradient: LinearGradient(begin: Alignment.topCenter, end: Alignment.bottomCenter, colors: [Colors.black.withOpacity(0.9), Colors.transparent]),
               ),
             ),
-            // 2. The Filled Track (Progress)
             Container(
               height: 12, width: (value / 100) * (MediaQuery.of(context).size.width - 48),
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(10),
-                gradient: LinearGradient(
-                  colors: isLearning ? [Colors.cyan.shade900, Colors.cyan] : [const Color(0xFF4A2B8B), const Color(0xFFA685FE)],
-                ),
-                boxShadow: [
-                  BoxShadow(color: isLearning ? Colors.cyan.withOpacity(0.5) : const Color(0xFF8D72E1).withOpacity(0.5), blurRadius: 8)
-                ]
-              ),
+              decoration: BoxDecoration(borderRadius: BorderRadius.circular(10), gradient: LinearGradient(colors: isLearning ? [Colors.cyan.shade900, Colors.cyan] : [const Color(0xFF4A2B8B), const Color(0xFFA685FE)])),
             ),
-            // 3. The 3D Knob (Thumb)
             Positioned(
-              left: (value / 100) * (MediaQuery.of(context).size.width - 48) - 15, // Centers the 30px thumb
+              left: (value / 100) * (MediaQuery.of(context).size.width - 48) - 15, 
               child: Container(
                 height: 30, width: 30,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: const Color(0xFF1E1E24),
-                  border: Border.all(color: isLearning ? Colors.cyan : const Color(0xFFA685FE), width: 2),
-                  boxShadow: [
-                    const BoxShadow(color: Colors.black87, blurRadius: 8, offset: Offset(4, 4)), // Drop shadow
-                    BoxShadow(color: Colors.white.withOpacity(0.2), blurRadius: 4, offset: const Offset(-2, -2)), // Top highlight
-                  ]
-                ),
-                child: Center(
-                  child: Container(
-                    height: 10, width: 10,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: isLearning ? Colors.cyan : const Color(0xFFA685FE),
-                    ),
-                  ),
-                ),
+                decoration: BoxDecoration(shape: BoxShape.circle, color: const Color(0xFF1E1E24), border: Border.all(color: isLearning ? Colors.cyan : const Color(0xFFA685FE), width: 2)),
+                child: Center(child: Container(height: 10, width: 10, decoration: BoxDecoration(shape: BoxShape.circle, color: isLearning ? Colors.cyan : const Color(0xFFA685FE)))),
               ),
             ),
           ],
@@ -479,14 +361,54 @@ class Physical3DSlider extends StatelessWidget {
   }
 }
 
-// --- UPGRADED 3D AI AGENT BIRD COMPONENT ---
+class Pushable3DIconButton extends StatefulWidget {
+  final IconData icon;
+  final double size, iconSize;
+  final List<Color> topColors;
+  final Color lipColor, iconColor;
+  final VoidCallback onPressed;
+  const Pushable3DIconButton({super.key, required this.icon, required this.onPressed, this.size = 50.0, this.iconSize = 24.0, required this.topColors, required this.lipColor, required this.iconColor});
 
+  @override
+  State<Pushable3DIconButton> createState() => _Pushable3DIconButtonState();
+}
+
+class _Pushable3DIconButtonState extends State<Pushable3DIconButton> {
+  bool isPressed = false;
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTapDown: (_) { HapticFeedback.lightImpact(); setState(() => isPressed = true); },
+      onTapUp: (_) { setState(() => isPressed = false); widget.onPressed(); },
+      onTapCancel: () => setState(() => isPressed = false),
+      child: SizedBox(
+        height: widget.size + 8, width: widget.size,
+        child: Stack(
+          alignment: Alignment.center,
+          children: [
+            Positioned(bottom: 0, child: Container(height: widget.size, width: widget.size, decoration: BoxDecoration(shape: BoxShape.circle, color: widget.lipColor))),
+            AnimatedPositioned(
+              duration: const Duration(milliseconds: 50),
+              bottom: isPressed ? 0 : 8, 
+              child: Container(
+                height: widget.size, width: widget.size,
+                decoration: BoxDecoration(shape: BoxShape.circle, gradient: LinearGradient(colors: widget.topColors), border: Border.all(color: Colors.white.withOpacity(0.15), width: 1)),
+                child: Center(child: Icon(widget.icon, color: widget.iconColor, size: widget.iconSize)),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// --- 3. OPTIMIZED BIRD PAINTER (Removed CPU-heavy Blurs) ---
 class AnimatedBird extends StatefulWidget {
   final int delay;
   final double scale;
   final bool isAI;
   const AnimatedBird({super.key, required this.delay, this.scale = 1.0, required this.isAI});
-
   @override
   State<AnimatedBird> createState() => _AnimatedBirdState();
 }
@@ -494,17 +416,13 @@ class AnimatedBird extends StatefulWidget {
 class _AnimatedBirdState extends State<AnimatedBird> with SingleTickerProviderStateMixin {
   late AnimationController _controller;
   late Animation<double> _anim;
-
   @override
   void initState() {
     super.initState();
     _controller = AnimationController(vsync: this, duration: const Duration(milliseconds: 500));
     _anim = CurvedAnimation(parent: _controller, curve: Curves.easeInOutSine);
-    Future.delayed(Duration(milliseconds: widget.delay), () { 
-      if (mounted) _controller.repeat(reverse: true); 
-    });
+    Future.delayed(Duration(milliseconds: widget.delay), () { if (mounted) _controller.repeat(reverse: true); });
   }
-
   @override
   void dispose() { _controller.dispose(); super.dispose(); }
 
@@ -516,38 +434,20 @@ class _AnimatedBirdState extends State<AnimatedBird> with SingleTickerProviderSt
         return Stack(
           clipBehavior: Clip.none,
           children: [
-            // 3D floating data bits
             Positioned(
               top: -35 * _anim.value, right: -5,
               child: Opacity(
                 opacity: 1 - _anim.value,
                 child: Transform(
-                  transform: Matrix4.identity()..setEntry(3, 2, 0.001)..rotateX(_anim.value), // Spins the text in 3D
-                  child: Text(
-                    math.Random().nextBool() ? "1" : "0",
-                    style: TextStyle(
-                      color: widget.isAI ? Colors.cyanAccent : const Color(0xFFB4A2E7), 
-                      fontSize: 12, fontWeight: FontWeight.bold, fontFamily: 'monospace',
-                      shadows: [Shadow(color: widget.isAI ? Colors.cyan : Colors.deepPurple, blurRadius: 10)]
-                    ),
-                  ),
+                  transform: Matrix4.identity()..setEntry(3, 2, 0.001)..rotateX(_anim.value), 
+                  child: Text(math.Random().nextBool() ? "1" : "0", style: TextStyle(color: widget.isAI ? Colors.cyanAccent : const Color(0xFFB4A2E7), fontSize: 12, fontWeight: FontWeight.bold, fontFamily: 'monospace')),
                 ),
               ),
             ),
-            
-            // The 3D Bird Model
             Transform(
-              transform: Matrix4.identity()
-                ..setEntry(3, 2, 0.002) // 3D Perspective
-                ..rotateY(0.3 * math.sin(_anim.value * math.pi)) // Yaws left and right
-                ..rotateX(-0.2 * _anim.value) // Pitches up when flying higher
-                ..scale(widget.scale)
-                ..translate(0.0, -12 * _anim.value, 0.0), // Physical Z-axis hover
+              transform: Matrix4.identity()..setEntry(3, 2, 0.002)..rotateY(0.3 * math.sin(_anim.value * math.pi))..rotateX(-0.2 * _anim.value)..scale(widget.scale)..translate(0.0, -12 * _anim.value, 0.0),
               alignment: Alignment.center,
-              child: CustomPaint(
-                size: const Size(45, 40),
-                painter: AIAgentBirdPainter(bounce: _anim.value, isAI: widget.isAI),
-              ),
+              child: CustomPaint(size: const Size(45, 40), painter: AIAgentBirdPainter(bounce: _anim.value, isAI: widget.isAI)),
             ),
           ],
         );
@@ -563,164 +463,34 @@ class AIAgentBirdPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    // 1. Ambient Drop Shadow (Detaches the bird from the background)
-    canvas.drawCircle(
-      Offset(size.width * 0.4 + 5, size.height * 0.6 + 15), 
-      8, 
-      Paint()..color = Colors.black.withOpacity(0.5)..maskFilter = const MaskFilter.blur(BlurStyle.normal, 6)
-    );
+    // Fake shadow (No blur)
+    canvas.drawCircle(Offset(size.width * 0.4 + 5, size.height * 0.6 + 15), 8, Paint()..color = Colors.black38);
 
-    // 2. 3D Spherical Body (Using RadialGradient for lighting)
     final Rect bodyRect = Rect.fromCircle(center: Offset(size.width * 0.4, size.height * 0.6), radius: 11);
-    final Paint bodyPaint = Paint()
-      ..shader = RadialGradient(
-        center: const Alignment(-0.4, -0.4), // Light source hits top-left
-        radius: 0.9,
-        colors: isAI 
-          ? [Colors.white, Colors.cyan, Colors.cyan.shade900]
-          : [Colors.white, const Color(0xFF8D72E1), const Color(0xFF3B1E7A)],
-        stops: const [0.0, 0.5, 1.0],
-      ).createShader(bodyRect);
+    final Paint bodyPaint = Paint()..shader = RadialGradient(center: const Alignment(-0.4, -0.4), radius: 0.9, colors: isAI ? [Colors.white, Colors.cyan, Colors.cyan.shade900] : [Colors.white, const Color(0xFF8D72E1), const Color(0xFF3B1E7A)], stops: const [0.0, 0.5, 1.0]).createShader(bodyRect);
 
-    // AI Glowing Aura
-    if (isAI) {
-      canvas.drawCircle(bodyRect.center, 15, Paint()..color = Colors.cyan.withOpacity(0.3)..maskFilter = const MaskFilter.blur(BlurStyle.normal, 8));
-    }
-    // Draw 3D Body
+    if (isAI) canvas.drawCircle(bodyRect.center, 15, Paint()..color = Colors.cyan.withOpacity(0.2)); // Fake glow (no blur)
     canvas.drawCircle(bodyRect.center, 11, bodyPaint);
 
-    // 3. 3D Beak (Two separate polygons to create a cone shadow)
-    // Top Half (Lit)
-    final topBeak = Path()
-      ..moveTo(size.width * 0.55, size.height * 0.55)
-      ..lineTo(size.width * 0.95, size.height * (0.45 - (0.1 * bounce)))
-      ..lineTo(size.width * 0.65, size.height * 0.6)
-      ..close();
+    final topBeak = Path()..moveTo(size.width * 0.55, size.height * 0.55)..lineTo(size.width * 0.95, size.height * (0.45 - (0.1 * bounce)))..lineTo(size.width * 0.65, size.height * 0.6)..close();
     canvas.drawPath(topBeak, Paint()..color = isAI ? Colors.white : Colors.orangeAccent.shade100);
 
-    // Bottom Half (Shadowed)
-    final bottomBeak = Path()
-      ..moveTo(size.width * 0.65, size.height * 0.6)
-      ..lineTo(size.width * 0.95, size.height * (0.45 - (0.1 * bounce)))
-      ..lineTo(size.width * 0.85, size.height * (0.65 + (0.1 * bounce)))
-      ..close();
+    final bottomBeak = Path()..moveTo(size.width * 0.65, size.height * 0.6)..lineTo(size.width * 0.95, size.height * (0.45 - (0.1 * bounce)))..lineTo(size.width * 0.85, size.height * (0.65 + (0.1 * bounce)))..close();
     canvas.drawPath(bottomBeak, Paint()..color = isAI ? Colors.grey.shade400 : Colors.deepOrange.shade800);
 
-    // 4. Glass/Glossy Eye
-    // Dark socket
     canvas.drawCircle(Offset(size.width * 0.55, size.height * 0.48), 2.5, Paint()..color = isAI ? Colors.cyan.shade900 : Colors.black87);
-    // Specular Catchlight (The white reflection making it look like glass)
     canvas.drawCircle(Offset(size.width * 0.53, size.height * 0.46), 0.8, Paint()..color = Colors.white);
 
-    // 5. 3D Wing (Gradient + Shadow + Thickness)
     final wingPath = Path();
     wingPath.moveTo(size.width * 0.25, size.height * 0.55);
-    // The wing tip moves up and down
-    double wingTipY = size.height * (0.1 + (0.8 * bounce));
-    wingPath.quadraticBezierTo(-size.width * 0.1, wingTipY, size.width * 0.4, size.height * 0.75);
-    wingPath.quadraticBezierTo(size.width * 0.3, size.height * 0.65, size.width * 0.25, size.height * 0.55); // Inner curve gives it thickness
+    wingPath.quadraticBezierTo(-size.width * 0.1, size.height * (0.1 + (0.8 * bounce)), size.width * 0.4, size.height * 0.75);
+    wingPath.quadraticBezierTo(size.width * 0.3, size.height * 0.65, size.width * 0.25, size.height * 0.55); 
 
-    final Paint wingPaint = Paint()
-      ..shader = LinearGradient(
-        begin: Alignment.topCenter,
-        end: Alignment.bottomCenter,
-        colors: isAI 
-          ? [Colors.cyanAccent, Colors.cyan.shade800] 
-          : [const Color(0xFFB4A2E7), const Color(0xFF4A2B8B)],
-      ).createShader(Rect.fromLTRB(0, 0, size.width, size.height));
+    final Paint wingPaint = Paint()..shader = LinearGradient(begin: Alignment.topCenter, end: Alignment.bottomCenter, colors: isAI ? [Colors.cyanAccent, Colors.cyan.shade800] : [const Color(0xFFB4A2E7), const Color(0xFF4A2B8B)]).createShader(Rect.fromLTRB(0, 0, size.width, size.height));
     
-    // Wing Drop Shadow (Projects onto the body)
-    canvas.drawPath(wingPath.shift(const Offset(1, 3)), Paint()..color = Colors.black45..maskFilter = const MaskFilter.blur(BlurStyle.normal, 2));
-    // Draw actual wing
+    canvas.drawPath(wingPath.shift(const Offset(1, 3)), Paint()..color = Colors.black26); // Fake wing shadow (no blur)
     canvas.drawPath(wingPath, wingPaint);
   }
-
   @override
   bool shouldRepaint(AIAgentBirdPainter oldDelegate) => true;
 }
-
-// --- NEW: 3D PHYSICAL CIRCULAR BUTTON ---
-class Pushable3DIconButton extends StatefulWidget {
-  final IconData icon;
-  final double size;
-  final double iconSize;
-  final List<Color> topColors;
-  final Color lipColor;
-  final Color iconColor;
-  final VoidCallback onPressed;
-
-  const Pushable3DIconButton({
-    super.key,
-    required this.icon,
-    required this.onPressed,
-    this.size = 50.0,
-    this.iconSize = 24.0,
-    required this.topColors,
-    required this.lipColor,
-    required this.iconColor,
-  });
-
-  @override
-  State<Pushable3DIconButton> createState() => _Pushable3DIconButtonState();
-}
-
-class _Pushable3DIconButtonState extends State<Pushable3DIconButton> {
-  bool isPressed = false;
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTapDown: (_) {
-        HapticFeedback.lightImpact();
-        setState(() => isPressed = true);
-      },
-      onTapUp: (_) {
-        setState(() => isPressed = false);
-        widget.onPressed();
-      },
-      onTapCancel: () => setState(() => isPressed = false),
-      child: SizedBox(
-        height: widget.size + 8, // Extra 8px for the travel distance
-        width: widget.size,
-        child: Stack(
-          alignment: Alignment.center,
-          children: [
-            // 1. The Bottom "Lip" (Shadow layer)
-            Positioned(
-              bottom: 0,
-              child: Container(
-                height: widget.size, width: widget.size,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: widget.lipColor,
-                  boxShadow: const [BoxShadow(color: Colors.black87, blurRadius: 10, offset: Offset(0, 5))],
-                ),
-              ),
-            ),
-            // 2. The Top "Physical" Layer (Moves down when pressed)
-            AnimatedPositioned(
-              duration: const Duration(milliseconds: 50),
-              bottom: isPressed ? 0 : 8, // Moves down 8 pixels to meet the lip
-              child: Container(
-                height: widget.size, width: widget.size,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  gradient: LinearGradient(
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                    colors: widget.topColors,
-                  ),
-                  border: Border.all(color: Colors.white.withOpacity(0.15), width: 1),
-                ),
-                child: Center(
-                  child: Icon(widget.icon, color: widget.iconColor, size: widget.iconSize),
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
